@@ -27,5 +27,11 @@
       "query": "t??k",
       "mode": "sp"
     }
-  ]
+  ],
+  "localText": {
+    "maximumCharacters": 100000,
+    "frequencyLimit": 100,
+    "readingWordsPerMinute": 200,
+    "unicodePreviewLimit": 200
+  }
 }

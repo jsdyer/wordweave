@@ -20,6 +20,12 @@ test('configured limits are bounded integers and endpoints cannot contain creden
  for(const endpoint of ['http://example.com/words','https://key@example.com/words','https://example.com/?key=secret'])assert.throws(()=>queryUrl(q,{...config,backendEndpoint:endpoint}),/credential-free/);
  assert.equal(new URL(queryUrl(q,{...config,backendEndpoint:'https://words.hackme.ca/words'})).origin,'https://words.hackme.ca');
 });
+test('same-origin Pages route resolves against HTTPS but cannot become an external origin',()=>{
+ assert.equal(new URL(queryUrl(q,{...config,backendEndpoint:'/api/words'},'https://words.hackme.ca/')).origin,'https://words.hackme.ca');
+ assert.throws(()=>queryUrl(q,{...config,backendEndpoint:'/api/words'},'http://example.com'),/credential-free/);
+ assert.throws(()=>queryUrl(q,{...config,backendEndpoint:'/\\evil.example/api'},'https://words.hackme.ca/'),/credential-free/);
+ assert.throws(()=>queryUrl(q,{...config,backendEndpoint:'//evil.example/api'},'https://words.hackme.ca/'));
+});
 test('normalization accepts missing metadata, preserves text and rejects wrong response shape',()=>{
  assert.deepEqual(normalize([{word:'sea'},{word:'<img src=x>',numSyllables:1,tags:['n',23]}]),[{word:'sea',score:null,numSyllables:null,tags:[]},{word:'<img src=x>',score:null,numSyllables:1,tags:['n']}]);
  assert.throws(()=>normalize({words:[]}),/unrecognized/);assert.throws(()=>normalize([{word:'sea'},{word:'sea'}]),/duplicate/);assert.throws(()=>normalize([{word:'sea',numSyllables:-1}]),/syllable/);

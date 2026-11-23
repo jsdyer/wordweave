@@ -6,6 +6,7 @@ import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from build import ROOT, build, metadata
+from build_pages import build_pages
 
 
 class BuildTests(unittest.TestCase):
@@ -71,6 +72,18 @@ class BuildTests(unittest.TestCase):
         self.edit(source="javascript:bad()")
         with self.assertRaises(ValueError): build(self.root)
         self.assertEqual((self.root / "dist/index.html").read_bytes(), existing)
+
+    def test_pages_copy_uses_runtime_route_without_copying_server_files(self):
+        (self.root / 'cloudflare').mkdir()
+        (self.root / 'cloudflare/.dev.vars').write_text('DATAMUSE_API_KEY=test-placeholder')
+        build_pages(self.root)
+        output = self.root / 'cloudflare/public'
+        self.assertEqual(json.loads((output / 'config.json').read_text())['backendEndpoint'], '/api/words')
+        self.assertEqual(json.loads((self.root / 'dist/config.json').read_text())['backendEndpoint'], None)
+        self.assertNotIn('/assets/tool-metrics.js', (output / 'index.html').read_text())
+        self.assertFalse((output / '.dev.vars').exists())
+        self.assertFalse((output / 'functions').exists())
+        self.assertEqual(json.loads((output / '_routes.json').read_text())['include'], ['/api/*'])
 
 
 if __name__ == "__main__": unittest.main()

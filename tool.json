@@ -1,14 +1,17 @@
 {
   "id": "wordweave",
   "title": "Word Weave",
-  "description": "Explore words by meaning, sound and spelling, compare searches and keep a writing shortlist.",
+  "description": "Find related words and explore local text statistics, Unicode, cleanup and transformations.",
   "category": "media",
   "tags": [
     "words",
     "writing",
     "rhymes",
     "language",
-    "Datamuse"
+    "Datamuse",
+    "Unicode",
+    "text statistics",
+    "slug"
   ],
   "icon": "scan-text",
   "url": "/wordweave/",
@@ -16,7 +19,7 @@
   "hosting": "project",
   "access": "browser",
   "data_info": {
-    "mode": "live",
-    "detail": "Datamuse word relationships are fetched on demand; comparisons, filters and shortlists are processed in your browser."
+    "mode": "mixed",
+    "detail": "Datamuse word searches run on demand; text statistics, Unicode inspection and transformations run locally."
   }
 }
