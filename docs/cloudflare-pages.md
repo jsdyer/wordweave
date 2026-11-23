@@ -91,6 +91,8 @@ There is no application database, query log or persistent IP store. Word queries
 | HTTP 404 or HTML at `/api/words` | Root must be `cloudflare`, output must be `public`, and deployment must include the Functions directory. |
 | CORS error only on CoolCode | Confirm `ALLOWED_ORIGIN` is exactly `https://coolcode.ca`, with no trailing slash, and redeploy. |
 | HTTP 429 | Stop retrying briefly. It can be the short burst guard or Datamuse's shared-key limit. |
+| JSON HTTP 502 with a `code` and `phase` | Share those fixed diagnostic fields. `upstream_fetch_failed` is the connection stage; `upstream_body_read_failed`/`upstream_empty_body` concern the returned stream; `upstream_invalid_json`/`upstream_invalid_shape` concern its format. Neither the key, query nor provider body is included. |
+| `upstream_redirect_rejected` | The provider returned a redirect. The adapter deliberately does not follow it or forward the key to another URL. |
 | A domain error after adding a CNAME | Finish **Pages → Custom domains**, then confirm its activation and DNS target. |
 | Text utilities work but no words load | Those functions are local; test `/api/words` independently to isolate the API connection. |
 
@@ -103,3 +105,5 @@ There is no application database, query log or persistent IP store. Word queries
 - [Datamuse API, attribution and usage notice](https://www.datamuse.com/api/)
 
 Setup instructions checked against Cloudflare documentation on 23 November 2026. The `k` authentication method comes from the owner's provider-issued setup instructions; no private key value is included here.
+
+Runtime note: Cloudflare Workers implements `redirect: 'manual'`, but not `redirect: 'error'`. The adapter uses manual mode and rejects redirects itself. Cache acquisition, lookup, writes and background scheduling are best effort; failures there do not turn a successful provider response into a failed search. See [Workers Request support](https://developers.cloudflare.com/workers/runtime-apis/request/).

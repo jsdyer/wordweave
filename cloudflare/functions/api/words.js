@@ -4,6 +4,12 @@ const ALLOWED = new Set([...MODES, 'topics', 'v', 'md', 'max']);
 const WINDOW_MS = 60000, REQUESTS_PER_WINDOW = 30, MAX_CLIENTS = 5000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
+// Fixed classifications only: never return an exception message, URL, key,
+// query, or provider body when describing an upstream failure.
+class AdapterFailure extends Error {
+  constructor(code, phase) { super(code); this.code = code; this.phase = phase; }
+}
+
 export function validatedParams(search) {
   const params = new URLSearchParams(search);
   for (const name of params.keys()) {
@@ -28,25 +34,37 @@ export function validatedParams(search) {
 }
 
 async function boundedJson(response) {
-  if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES) throw Error('response_size');
-  const reader = response.body?.getReader();
-  if (!reader) throw Error('empty_response');
+  if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES) throw new AdapterFailure('upstream_response_too_large','body');
+  let reader;
+  try { reader = response.body?.getReader(); }
+  catch { throw new AdapterFailure('upstream_body_read_failed','body'); }
+  if (!reader) throw new AdapterFailure('upstream_empty_body','body');
   const chunks = []; let size = 0;
   try {
     while (true) {
       const {done, value} = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) { await reader.cancel(); throw Error('response_size'); }
+      if (size > MAX_RESPONSE_BYTES) {
+        // Cancelling is best effort and must not replace the actual size error.
+        try { await reader.cancel(); } catch {}
+        throw new AdapterFailure('upstream_response_too_large','body');
+      }
       chunks.push(value);
     }
-  } finally { reader.releaseLock(); }
+  } catch (error) {
+    if (error instanceof AdapterFailure) throw error;
+    throw new AdapterFailure('upstream_body_read_failed','body');
+  } finally { try { reader.releaseLock(); } catch {} }
+  if (!size) throw new AdapterFailure('upstream_empty_body','body');
   const bytes = new Uint8Array(size); let position = 0;
   for (const chunk of chunks) { bytes.set(chunk, position); position += chunk.byteLength; }
-  const data = JSON.parse(new TextDecoder().decode(bytes));
-  if (!Array.isArray(data) || data.length > 1000) throw Error('response_shape');
+  let data;
+  try { data = JSON.parse(new TextDecoder().decode(bytes)); }
+  catch { throw new AdapterFailure('upstream_invalid_json','decode'); }
+  if (!Array.isArray(data) || data.length > 1000) throw new AdapterFailure('upstream_invalid_shape','validate');
   return data.map(row => {
-    if (!row || typeof row.word !== 'string' || !row.word.trim() || row.word.length > 500) throw Error('response_word');
-    if (row.numSyllables != null && (!Number.isInteger(row.numSyllables) || row.numSyllables < 0 || row.numSyllables > 100)) throw Error('response_syllables');
+    if (!row || typeof row.word !== 'string' || !row.word.trim() || row.word.length > 500) throw new AdapterFailure('upstream_invalid_word','validate');
+    if (row.numSyllables != null && (!Number.isInteger(row.numSyllables) || row.numSyllables < 0 || row.numSyllables > 100)) throw new AdapterFailure('upstream_invalid_syllables','validate');
     return {word: row.word, ...(Number.isFinite(row.score) ? {score:row.score} : {}), ...(row.numSyllables != null ? {numSyllables:row.numSyllables} : {}), ...(Array.isArray(row.tags) ? {tags:row.tags.filter(tag => typeof tag === 'string' && tag.length <= 50).slice(0,50)} : {})};
   });
 }
@@ -79,28 +97,39 @@ export function createHandler({fetcher = (...args) => fetch(...args), cache = ()
     }
     if (++entry.count > REQUESTS_PER_WINDOW) return answer({error:'Please wait before making more word searches.'},429,{'Retry-After':String(Math.max(1,Math.ceil((entry.until-clock)/1000)))});
     const keyUrl = new URL('/api/words',url.origin); keyUrl.search=params.toString();
-    const cacheKey = new Request(keyUrl.href), store = cache();
+    const cacheKey = new Request(keyUrl.href);
+    let store;
     try {
+      store = cache();
       const hit = store && await store.match(cacheKey);
       if (hit) return new Response(hit.body,{status:200,headers:{...headers,'X-WordWeave-Cache':'HIT'}});
     } catch { /* A cache outage should not break a valid lookup. */ }
     const upstream = new URL('https://api.datamuse.com/words');
     upstream.search=params.toString(); upstream.searchParams.set('k',env.DATAMUSE_API_KEY);
     const controller = new AbortController(), timer = setTimeout(()=>controller.abort(),timeoutMs);
+    let phase = 'fetch';
     try {
-      const response = await fetcher(upstream.href,{signal:controller.signal,redirect:'error',credentials:'omit',headers:{Accept:'application/json'}});
+      // Workers does not implement redirect:'error'. Manual mode is supported
+      // and lets us reject redirects without forwarding the key elsewhere.
+      const response = await fetcher(upstream.href,{signal:controller.signal,redirect:'manual',credentials:'omit',headers:{Accept:'application/json'}});
+      if (response.status >= 300 && response.status < 400) return answer({error:'Datamuse redirected the request. The connection needs review.',code:'upstream_redirect_rejected',phase:'fetch',upstreamStatus:response.status},502);
       if (!response.ok) {
         const status = response.status === 429 ? 429 : response.status === 401 || response.status === 403 ? 503 : 502;
-        return answer({error:status===429?'Datamuse has rate-limited this service. Please try later.':status===503?'Datamuse did not accept the configured connection. The owner should check its key.':'Datamuse could not complete the search.'},status,status===429?{'Retry-After':'60'}:{});
+        return answer({error:status===429?'Datamuse has rate-limited this service. Please try later.':status===503?'Datamuse did not accept the configured connection. The owner should check its key.':'Datamuse could not complete the search.',code:'upstream_http_error',phase:'fetch',upstreamStatus:response.status},status,status===429?{'Retry-After':'60'}:{});
       }
+      phase = 'body';
       const data = await boundedJson(response), body = JSON.stringify(data);
       if (store) {
-        const saving = store.put(cacheKey,new Response(body,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}})).catch(()=>{});
-        if (context.waitUntil) context.waitUntil(saving); else await saving;
+        // Catch synchronous throws as well as rejected promises. Neither cache
+        // writes nor scheduling them may invalidate a successful word response.
+        const saving = Promise.resolve().then(()=>store.put(cacheKey,new Response(body,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}}))).catch(()=>{});
+        try { if (typeof context.waitUntil === 'function') context.waitUntil(saving); else await saving; }
+        catch { await saving; }
       }
       return new Response(body,{status:200,headers:{...headers,'X-WordWeave-Cache':'MISS'}});
-    } catch {
-      return answer({error:controller.signal.aborted?'Datamuse took too long to respond. Try again later.':'The word service could not complete the search. Try again later.'},502);
+    } catch (error) {
+      const failure = controller.signal.aborted ? {code:'upstream_timeout',phase} : error instanceof AdapterFailure ? {code:error.code,phase:error.phase} : {code:phase === 'fetch'?'upstream_fetch_failed':'upstream_response_failed',phase};
+      return answer({error:controller.signal.aborted?'Datamuse took too long to respond. Try again later.':'The word service could not complete the search. Try again later.',...failure},502);
     } finally { clearTimeout(timer); }
   };
 }
