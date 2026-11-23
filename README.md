@@ -1,116 +1,58 @@
-# CoolCode browser tool template
+# Word Weave
 
-A starting point for independent tools at `coolcode.ca/<repo>/`: a working local-text
-example, responsive UI, Python standard-library build, Node tests, PR checks and Pages
-publication. No npm install is needed.
-
-## Using the example
+A working Datamuse word-finding desk at https://coolcode.ca/wordweave/. Explore meaning, sound, rhymes, spelling patterns and word associations. Pin one search to compare its returned words with another; keep a shortlist and export the words you want.
 
 <!-- coolcode:guide -->
-The first occurrence of each trimmed line keeps its place. Compare the output with the original text before copying the result.
+Start with **ocean** and **Similar meaning**, then pin the search and try **river** to inspect shared words. **Spelling pattern** accepts * for any letters and ? for one letter, such as **t??k**. Syllable and word-class filters are local, so they make no additional API request. Comparisons describe only the returned lists, not the entire vocabulary. Your shortlist stays in this tab; download it before closing.
 <!-- /coolcode:guide -->
 
-For a real tool, replace this paragraph with one or two plain-text sentences
-about an example, a limit or how to interpret the results. Keep the source,
-coverage, refresh behaviour and a worked example in this README as appropriate.
-When updating a tool, revise any details its behaviour has changed and keep the
-homepage's shorter data-source sentence in `tool.json` accurate.
-The hub imports the marked note into the catalogue README.
+## Sources and interpretation
 
-## One-time template setup
+[Datamuse API](https://www.datamuse.com/api/) supplies the results. Its underlying sources include WordNet, OneLook dictionaries, the CMU pronouncing dictionary and Google Books Ngrams. The app requests word classes and syllable estimates (`md=ps`), and retains provider order. Scores have meaning only as a ranking within a query; they are not displayed as confidence or cross-query similarity.
 
-Enable **Settings → General → Template repository** here. This repository does not
-need Pages enabled: its workflow builds/tests but intentionally skips deployment.
-New copies also skip deployment until `scripts/init.py` sets the tool ID to match
-their repository name. This lets you create the repo before configuring Pages.
+English supports meaning, sound, spelling, rhymes, near rhymes, synonyms, antonyms, adjectives, nouns, associations and homophones. Spanish supports meaning, sound and spelling; the API's `rel_*` relationships are English-only. Syllable counts and word classes are provider estimates, sometimes ambiguous or absent. An empty response is an actual no-result state, distinct from a request failure.
 
-## Start a new tool
+The current keyless API was verified on 23 November 2026 with HTTP 200, real `ocean` word results, and a CORS response allowing `https://coolcode.ca`. No key is embedded. The app uses no synthetic fallback results and does not automatically query on page load or keystrokes.
 
-1. Select **Use this template → Create a new repository**, choose owner `jsdyer`,
-   a unique lowercase name such as `my-tool`, and public visibility.
-2. Clone the new repository. Use Python 3.12+ and Node 24+.
-3. Set the identity, using a slug that matches the repository name:
+## Registration and the 2027 change
 
-```sh
-python3 scripts/init.py my-tool --title "My Tool" --description "Describe what this tool does."
+Datamuse currently documents free keyless access up to 100,000 requests/day. Its official notice says **1 February 2027** will require keys. It asks public/customer-facing applications to contact it with a description and traffic estimate. Use the [provider's request form](https://www.onelook.com/?c=about&sel=api) linked from the API documentation. A draft:
+
+> I am building Word Weave, a free non-commercial word-finding tool at https://coolcode.ca/wordweave/. Visitors submit words or phrases to explore meaning, sound, rhymes and spelling patterns using /words. Searches are manually submitted, cached within a browser tab and spaced at least one second apart; no background harvesting occurs. I expect fewer than 1,000 requests per day initially. I credit Datamuse and explain which queries are sent to the service. Could you provide an API key for the February 2027 requirement and confirm the authentication method and applicable limits for this use?
+
+Use your reply email in the form. The draft is not sent automatically and registration is not claimed complete.
+
+When the provider issues a key and documents its use, keep it in a server-side secret. Set `backendEndpoint` in `web/config.json` to an HTTPS endpoint you control that accepts the same allowlisted word query parameters, attaches the key server-side and returns the unchanged Datamuse JSON array. It must allow CoolCode's origin, enforce quotas and omit private credentials from responses. **Do not put the key in config, the URL or public JavaScript.** This repo deliberately does not invent an undocumented authentication format or deploy a Cloudflare service. A server endpoint can be under the owner's `hackme.ca` domain.
+
+## Privacy and saved work
+
+Submitting a query sends its text, pattern and topics to Datamuse (or the configured service). Datamuse states that temporary query logs are discarded at the end of the following day. Filters, comparison and shortlist work in tab memory. No query is saved to localStorage. CSV and receipt JSON are explicit downloads; imports are processed locally and never uploaded. Save a receipt to preserve a returned list and its query/retrieval time. A fresh result can differ from an earlier one because provider data and rankings change.
+
+## Expand or customize
+
+Edit `web/config.json`:
+
+```json
+{
+  "maxResults": 100,
+  "presets": [{"label":"Coastal vocabulary","query":"ocean","mode":"ml"}],
+  "apiEndpoint":"https://api.datamuse.com/words",
+  "backendEndpoint": null,
+  "timeoutMs": 15000,
+  "minimumRequestIntervalMs": 1000,
+  "maximumShortlist": 100,
+  "cacheEntries": 30
+}
 ```
 
-Review the category, tags and icon in `tool.json`. `access: "browser"` tells the main
-catalogue that the tool works immediately without installation. `--owner` supports a different
-GitHub owner, but only projects owned by `jsdyer` inherit the CoolCode domain.
+Any number of presets can be added; visitors always have arbitrary query input. Modes are listed in `web/model.mjs`. The provider caps `maxResults` at 1,000. Other workload caps: 30-second requests, 1,000 shortlist entries, 100 cached requests, 2 MB receipt files. These limits are separate from initial presets. A new configuration does not invalidate a receipt with a valid old query. No data collector is needed: push code/config changes to `main`, and **Word Weave · Check and publish** tests and deploys. There is no scheduled source poll.
 
-4. Replace the example in `web/` and its tests. Update the privacy explanation,
-   source attribution and README to describe the real tool.
-5. Test and preview:
+## Tests and build
 
 ```sh
 node --test tests/*.test.mjs
 python3 -m unittest discover -s tests -v
 python3 scripts/build.py
-python3 -m http.server 8000 --directory dist
 ```
 
-Open `http://localhost:8000/`. The example trims lines, skips blanks and removes exact
-duplicates, preserving first-seen order and capitalization. It processes the text in tab memory. Update that explanation if your app behaves differently.
-
-CI also tests the browser flow and mobile layout at a project subpath. Replace the
-sample assertions in `tests/browser_smoke.py` when implementing your own UI. To run
-that check locally (optional for ordinary preview):
-
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python3 -m pip install -r tests/browser-requirements.txt
-python3 -m playwright install --with-deps chromium
-python3 tests/browser_smoke.py
-```
-
-Playwright is a test-only dependency; the app and its static build do not use it.
-
-## Publish and register
-
-When the actual tool is ready, in the **new tool repository** set **Settings → Pages → Build and deployment →
-Source → GitHub Actions**. Push to `main`, or manually run **Browser tool · Check and
-publish** after enabling Pages. If the initial deployment ran before Pages was enabled,
-enable it and rerun. PRs only check/build and provide a downloadable preview artifact.
-
-Keep `{{VISIT_COUNTER}}` in the page head and `{{ISSUE_LINK}}` in the footer when replacing the starter UI. The build enables these for initialized CoolCode repositories. The shared counter records aggregate opens on coolcode.ca by public tool ID. Toolbox inputs and URL parameters are excluded. The issue link opens a reporting form with the tool already selected.
-
-Keep app-owned asset paths and module imports relative. Check `https://coolcode.ca/my-tool/`.
-Do not add a CNAME or set `coolcode.ca` as this project's custom domain; the account
-site supplies it. Only successful `main` builds deploy.
-
-After verifying the app, copy the reviewed object from `tool.json` into `data/tools.json`
-in [the main site](https://github.com/jsdyer/jsdyer.github.io). Each tool still builds
-independently. Update the hub record when listing metadata changes; the hub is the
-authority for discovery. Ordinary app updates touch only this repository.
-
-The main site separates **Use in your browser** from **Install yourself**. An app
-that asks for a file is still a browser tool. Standalone Linux packages should start
-in their own repositories with their own build/release workflow, rather than copying
-this browser-only scaffold. Their hub record uses `access: "install"`, links to an
-installation guide, and includes `requirements`.
-
-## Files
-
-| Path | Purpose |
-| --- | --- |
-| `tool.json` | Page metadata and a ready-to-copy catalogue record |
-| `web/` | HTML, responsive CSS, DOM interactions and separate model logic |
-| `scripts/build.py` | Escape metadata and build `web/` into `dist/` |
-| `scripts/init.py` | Set a new project's identity |
-| `tests/` | Application and builder tests |
-| `.github/workflows/pages.yml` | Check PRs and publish successful main builds |
-| `AGENTS.md` | Instructions for future coding work |
-
-Namespace optional storage as `coolcode:<tool-id>:<key>`; CoolCode paths share a
-browser origin. Don't save pasted text/uploads by default. Document external APIs
-and send only the information needed for the selected action. Never embed secrets.
-
-Scheduled refresh is opt-in. Validate source data before deploying, display its date,
-and preserve the last good deployment on failure. Public-repository schedules can
-stop after 60 days without repository activity.
-
-Templates don't propagate future edits automatically. Adopt fixes explicitly and
-consider a versioned reusable workflow once several tools confirm the shared process.
-Choose and add the intended software license before distributing a new project.
+Browser CI uses synthetic intercepted API fixtures for deterministic interaction/error tests, while deployment review verifies a real query separately. Tests check encoded arbitrary queries, relation/language validation, missing metadata, comparisons, hostile text, CSV safety, receipts and response failures. Static builds require no network or npm dependencies.

@@ -1,4 +1,4 @@
-name: Browser tool · Check and publish
+name: Word Weave · Check and publish
 on:
   pull_request:
   push:

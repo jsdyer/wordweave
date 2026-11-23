@@ -1,0 +1,31 @@
+{
+  "apiEndpoint": "https://api.datamuse.com/words",
+  "backendEndpoint": null,
+  "maxResults": 100,
+  "timeoutMs": 15000,
+  "minimumRequestIntervalMs": 1000,
+  "maximumShortlist": 100,
+  "cacheEntries": 30,
+  "presets": [
+    {
+      "label": "A word for a feeling",
+      "query": "homesick for a place never visited",
+      "mode": "ml"
+    },
+    {
+      "label": "Coastal vocabulary",
+      "query": "ocean",
+      "mode": "ml"
+    },
+    {
+      "label": "Rhymes with light",
+      "query": "light",
+      "mode": "rel_rhy"
+    },
+    {
+      "label": "A missing letter",
+      "query": "t??k",
+      "mode": "sp"
+    }
+  ]
+}

@@ -1,37 +1,13 @@
-import { cleanLines } from './model.mjs';
-const input = document.querySelector('#input');
-const output = document.querySelector('#output');
-const status = document.querySelector('#status');
-const copy = document.querySelector('#copy');
-function update() {
-  const result = cleanLines(input.value);
-  output.value = result.text;
-  status.textContent = `${result.count} unique ${result.count === 1 ? 'line' : 'lines'}; ${result.removed} ${result.removed === 1 ? 'duplicate' : 'duplicates'} removed.`;
-  copy.disabled = result.count === 0;
-}
-input.addEventListener('input', update);
-document.querySelector('#sample').addEventListener('click', () => {
-  input.value = '  Halifax\nLangley\nHalifax\n\nVancouver  ';
-  update();
-});
-document.querySelector('#clear').addEventListener('click', () => {
-  input.value = '';
-  update();
-  input.focus();
-});
-if (navigator.clipboard && window.isSecureContext) {
-  copy.hidden = false;
-  copy.disabled = true;
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(output.value);
-      status.textContent = 'Result copied.';
-    } catch {
-      output.focus();
-      output.select();
-      status.textContent = 'Copy was unavailable. The result is selected so you can copy it manually.';
-    }
-  });
-}
-// Namespace future preference storage as coolcode:<tool-id>:<key>.
-// Do not persist pasted text or uploads by default.
+import {MODES,cleanInput,queryUrl,normalize,filterWords,compare,receipt,readReceipt,csv,fetchJson} from './model.mjs';
+const $=id=>document.getElementById(id),el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
+let config,current=null,pinned=null,saved=[],visible=[],busy=false,lastRequest=0;const cache=new Map(),parts={n:'noun',v:'verb',adj:'adjective',adv:'adverb',u:'other'};
+function download(text,name,type='application/json'){const a=el('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
+function inputs(){return {query:$('query').value,mode:$('mode').value,language:$('language').value,pattern:$('pattern').value,topics:$('topics').value};}
+function toggleWord(word){const i=saved.findIndex(x=>x.word===word.word);if(i>=0)saved.splice(i,1);else if(saved.length<config.maximumShortlist)saved.push(word);else{$('status').textContent=`The shortlist holds ${config.maximumShortlist} words. Save it before starting another.`;return;}render();}
+function wordCard(r){const card=el('article',undefined,'word-card'),body=el('div');body.append(el('h3',r.word),el('p',[r.numSyllables===null?'Syllables not recorded':`${r.numSyllables} syllable${r.numSyllables===1?'':'s'}`,r.tags.filter(t=>parts[t]).map(t=>parts[t]).join(', ')||'Word class not recorded'].join(' · ')));const button=el('button',saved.some(x=>x.word===r.word)?'Remove':'Keep');button.setAttribute('aria-label',`${saved.some(x=>x.word===r.word)?'Remove':'Keep'} ${r.word}`);button.addEventListener('click',()=>toggleWord(r));card.append(body,button);return card;}
+function renderSaved(){$('saved-count').textContent=saved.length;$('saved').replaceChildren(...saved.map(r=>{const li=el('li'),name=el('span',r.word),remove=el('button','×');remove.setAttribute('aria-label','Remove shortlisted '+r.word);remove.addEventListener('click',()=>toggleWord(r));li.append(name,remove);return li;}));$('save-list').disabled=!saved.length;}
+function renderCompare(){$('comparison').hidden=!pinned||!current;$('unpin').hidden=!pinned;$('pinned-title').textContent=pinned?`“${pinned.query.query}”`:'Two searches. Shared words.';$('pinned-note').textContent=pinned?`${MODES[pinned.query.mode]} · ${pinned.words.length} returned words. Run another search to compare.`:'Pin a result, then search something else to see what connects them.';if(!pinned||!current)return;const c=compare(pinned.words,current.words);$('comparison-note').textContent=`${c.both.length} shared words in the two returned lists. This is not a comparison of the complete vocabulary.`;for(const [id,words,title] of [['only-a',c.onlyA,'Only in pinned search'],['both',c.both,'In both'],['only-b',c.onlyB,'Only in current search']]){$(id+'-title').textContent=`${title} · ${words.length}`;$(id).replaceChildren(...words.slice(0,50).map(x=>el('span',x.word)));if(!words.length)$(id).append(el('p','None in these returned lists.'));if(words.length>50)$(id).append(el('p',`Showing 50 of ${words.length}.`));}}
+function render(){renderSaved();renderCompare();if(!current)return;try{visible=filterWords(current.words,{text:$('filter').value,syllables:$('syllables').value,part:$('part').value});}catch(e){$('status').textContent=e.message;return;}$('result-title').textContent=`${MODES[current.query.mode]} “${current.query.query}”`;$('count').textContent=`${visible.length} of ${current.words.length} returned words`;$('words').replaceChildren(...visible.map(wordCard));if(!visible.length){const empty=el('div',undefined,'empty');empty.append(el('h3','No words match these constraints.'),el('p','Try another meaning or loosen the spelling, syllable or word-class filter.'));$('words').append(empty);}$('pin').disabled=!current.words.length;$('export').disabled=!visible.length;$('receipt').disabled=false;}
+async function search(){if(busy||!config)return;let query,url;try{query=cleanInput(inputs());url=queryUrl(query,config);}catch(e){$('status').textContent=e.message;return;}const cached=cache.get(url);if(!cached&&Date.now()-lastRequest<config.minimumRequestIntervalMs){$('status').textContent='Give Datamuse a moment before another search.';return;}busy=true;$('search').disabled=true;$('status').textContent='Finding words…';try{let result=cached;if(!result){lastRequest=Date.now();result={query,words:normalize(await fetchJson(url,config.timeoutMs)),capturedAt:new Date().toISOString()};cache.set(url,result);if(cache.size>config.cacheEntries)cache.delete(cache.keys().next().value);}current=result;$('filter').value='';$('syllables').value='';$('part').value='';$('status').textContent=`Datamuse · retrieved ${new Date(result.capturedAt).toLocaleString()}${cached?' · reused from this tab':''}. ${result.words.length===config.maxResults?'The configured result limit was reached. Narrow your query for other possibilities.':''}`;render();}catch(e){$('status').textContent=`Search could not finish: ${e.message} Previous results are unchanged.`;}finally{busy=false;$('search').disabled=false;}}
+$('search-form').addEventListener('submit',e=>{e.preventDefault();search();});for(const id of ['filter','syllables'])$(id).addEventListener('input',render);$('part').addEventListener('change',render);$('mode').addEventListener('change',()=>{$('pattern').disabled=$('mode').value==='sp';});$('pin').addEventListener('click',()=>{pinned=current;renderCompare();});$('unpin').addEventListener('click',()=>{pinned=null;renderCompare();});$('clear-list').addEventListener('click',()=>{saved=[];render();});$('save-list').addEventListener('click',()=>download(csv(saved),'wordweave-shortlist.csv','text/csv;charset=utf-8'));$('export').addEventListener('click',()=>download(csv(visible),'wordweave-results.csv','text/csv;charset=utf-8'));$('receipt').addEventListener('click',()=>download(JSON.stringify(receipt(current),null,2),'wordweave-receipt.json'));$('import').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>2*1024*1024)throw Error('Choose a receipt under 2 MB.');current=readReceipt(JSON.parse(await f.text()));$('filter').value='';$('syllables').value='';$('part').value='';$('status').textContent=`Imported ${current.words.length} words captured ${new Date(current.capturedAt).toLocaleString()}. Nothing was uploaded.`;render();}catch(err){$('status').textContent=err.message+' Previous results are unchanged.';}e.target.value='';});
+try{config=await fetchJson('./config.json',10000);config.maxResults=Math.max(1,Math.min(1000,Math.floor(Number(config.maxResults)||100)));config.timeoutMs=Math.max(1000,Math.min(30000,Number(config.timeoutMs)||15000));config.minimumRequestIntervalMs=Math.max(1000,Number(config.minimumRequestIntervalMs)||1000);config.maximumShortlist=Math.max(1,Math.min(1000,Number(config.maximumShortlist)||100));config.cacheEntries=Math.max(1,Math.min(100,Number(config.cacheEntries)||30));for(const p of config.presets||[]){if(typeof p.query!=='string'||!MODES[p.mode])continue;const b=el('button',p.label);b.type='button';b.addEventListener('click',()=>{$('query').value=p.query;$('mode').value=p.mode;$('pattern').disabled=p.mode==='sp';$('language').value='en';$('query').focus();$('status').textContent='Starting search filled in. Press Find words to send it.';});$('presets').append(b);}}catch(e){$('status').textContent='Configuration could not load. Reload to try again.';$('search').disabled=true;}

@@ -1,16 +1,22 @@
 {
-  "id": "coolcode-tool-template",
-  "title": "CoolCode Tool Starter",
-  "description": "A browser-only example that trims lines and removes exact duplicates.",
-  "category": "security",
-  "tags": ["text", "lines", "duplicates"],
-  "icon": "scan-search",
-  "url": "/coolcode-tool-template/",
-  "source": "https://github.com/jsdyer/coolcode-tool-template",
+  "id": "wordweave",
+  "title": "Word Weave",
+  "description": "Explore words by meaning, sound and spelling, compare searches and keep a writing shortlist.",
+  "category": "media",
+  "tags": [
+    "words",
+    "writing",
+    "rhymes",
+    "language",
+    "Datamuse"
+  ],
+  "icon": "scan-text",
+  "url": "/wordweave/",
+  "source": "https://github.com/jsdyer/wordweave",
   "hosting": "project",
   "access": "browser",
   "data_info": {
-    "mode": "local",
-    "detail": "The browser reads the text you paste and compares its lines."
+    "mode": "live",
+    "detail": "Datamuse word relationships are fetched on demand; comparisons, filters and shortlists are processed in your browser."
   }
 }
